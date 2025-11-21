@@ -1024,6 +1024,7 @@
                 <ul>
                     <li><strong style="color:#ff3333">RISK (Kırmızı Deste):</strong> Çektiğin +/- puanı seçtiğin bir rakibe uygularsınız. (Sınırlı Hak).</li>
                     <li><strong style="color:#ffff00">SALDIRI (Sarı Deste):</strong> Bir rakip seçip Zar Düellosu başlatırsınız. Kazanan, farkın 4 katı puan çalar! (Sınırlı Hak).</li>
+                    <li><strong>⚠️ CEZA:</strong> Oyun sonunda kullanılmayan her Risk ve Saldırı hakkı için oyuncudan <strong>10'ar PUAN</strong> silinir!</li>
                 </ul>
 
                 <p style="margin-top:15px;"><strong>🃏 JOKERLER (Her biri oyun boyu 1 KERE):</strong></p>
@@ -1132,7 +1133,7 @@
         <div id="target-grid" class="target-grid">
             <!-- Butonlar JS ile gelecek -->
         </div>
-        <button class="btn-small btn-danger" onclick="cancelTargetSelection()" style="margin-top:20px">İPTAL</button>
+        <!-- İPTAL BUTONU KALDIRILDI: ZORUNLU SEÇİM -->
     </section>
 
     <!-- DÜELLO MODALI -->
@@ -1901,27 +1902,6 @@
             el.targetModal.classList.remove('hidden');
         }
 
-        function cancelTargetSelection() {
-             const player = state.players[state.currentPlayerIdx];
-             // İptal edilirse hakkı geri ver (Kullanıcı dostu olması için)
-             if (state.pendingDuel) {
-                 player.duelRights++;
-                 state.duelDeck.push(state.pendingAttackCard); // Kartı geri koy
-                 state.hasUsedDuelCard = false;
-             } else {
-                 player.riskRights++;
-                 state.hasUsedRiskCard = false;
-                 if(state.pendingAttackCard) state.attackDeck.push(state.pendingAttackCard); // Kartı geri koy
-             }
-             
-             state.pendingAttackCard = null;
-             state.pendingDuel = false;
-             state.isProcessing = false;
-             el.targetModal.classList.add('hidden');
-             updateDeckUI();
-             renderBoard();
-        }
-
         function handleTargetSelection(targetId) {
             el.targetModal.classList.add('hidden');
             const card = state.pendingAttackCard;
@@ -2375,9 +2355,56 @@
         }
 
         function endGame() {
-            if (state.isGameOver) return; 
-            state.isGameOver = true;
+            if (state.isGameOver) return;
+            state.isGameOver = true; // Lock interactions
             
+            // Start Penalty Sequence
+            processEndGamePenalties();
+        }
+
+        async function processEndGamePenalties() {
+            const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+            
+            showToast("⚠️ OYUN BİTTİ! HAK CEZALARI HESAPLANIYOR...");
+            await wait(2000);
+
+            let anyPenaltyApplied = false;
+
+            for (let p of state.players) {
+                const unused = p.riskRights + p.duelRights;
+                if (unused > 0) {
+                    anyPenaltyApplied = true;
+                    const penalty = unused * 10;
+                    
+                    // Visual feedback
+                    showToast(`${p.name}: ${unused} Hak Kullanılmadı! (-${penalty})`);
+                    
+                    const pCard = document.getElementById(`player-card-${p.id}`);
+                    if (pCard) {
+                        const rect = pCard.getBoundingClientRect();
+                        
+                        // Internal visual penalty: From card center to score
+                        flyValueToScore(rect, p.id, -penalty, () => {
+                            changeScore(p, -penalty);
+                            AudioEngine.playActionBad('BANKRUPT');
+                        });
+                    } else {
+                         changeScore(p, -penalty);
+                    }
+                    
+                    await wait(1200); // Wait for animation and realization
+                }
+            }
+            
+            if (anyPenaltyApplied) {
+                showToast("CEZALAR UYGULANDI!");
+                await wait(1500);
+            }
+
+            finalizeGame();
+        }
+
+        function finalizeGame() {
             AudioEngine.playWin();
             const sortedPlayers = [...state.players].sort((a, b) => b.score - a.score);
             
@@ -2553,13 +2580,14 @@
 
         function updateDeckUI() {
             el.deckCount.innerText = `HAMLE (${state.deck.length})`;
-            if (state.deck.length === 0) el.deck.style.opacity = '0.3';
+            // FIX: Reset opacity if deck is not empty
+            el.deck.style.opacity = state.deck.length === 0 ? '0.3' : '';
 
             el.attackDeckCount.innerText = `RISK (${state.attackDeck.length})`;
-            if (state.attackDeck.length === 0) el.attackDeck.style.opacity = '0.3';
+            el.attackDeck.style.opacity = state.attackDeck.length === 0 ? '0.3' : '';
             
             el.duelDeckCount.innerText = `SALDIRI (${state.duelDeck.length})`;
-            if (state.duelDeck.length === 0) el.duelDeck.style.opacity = '0.3';
+            el.duelDeck.style.opacity = state.duelDeck.length === 0 ? '0.3' : '';
         }
 
         function animateDraw(cardData, targetPlayerIndex, callback) {
