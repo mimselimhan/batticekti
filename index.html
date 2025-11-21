@@ -424,24 +424,30 @@
         }
         .btn-danger:hover { background: rgba(255, 51, 51, 0.3); }
 
-        /* Oyuncu Grid */
+        /* Oyuncu Grid / Flex Layout Update */
         .players-area {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center; /* Varsayılan: Ortala */
+            align-items: center;
             gap: 12px;
             padding: 10px;
             width: 100%;
             max-width: 1200px;
             margin: 0 auto;
             flex: 1;
-            z-index: 20; /* Kartların altında kalsın ama arka plandan üstte */
+            z-index: 20; 
             position: relative;
+        }
+
+        /* 4 Kişilik Mod için Kenarlara Yaslama (Köşeler) */
+        .players-area.mode-4p {
+            justify-content: space-between; /* Kenarlara yasla */
         }
 
         .player-card {
             background: var(--bg-panel);
             border-radius: 16px;
-            /* Border color JS tarafından set edilir */
             border: 3px solid #444;
             display: flex;
             flex-direction: column;
@@ -453,6 +459,11 @@
             min-height: 130px;
             box-shadow: 0 4px 8px rgba(0,0,0,0.5);
             z-index: 1;
+            
+            /* Flex sizing logic */
+            flex: 1 1 140px; 
+            max-width: 200px; /* Çok genişlemesin */
+            min-width: 120px;
         }
 
         .player-card.active {
@@ -914,9 +925,8 @@
             .game-header { height: 40px; padding: 0 10px; }
             .btn-small { padding: 4px 10px; font-size: 0.75rem; }
 
-            /* Force 3 columns on mobile for 6 players (2 rows) */
+            /* Mobile Layout for Players - Use Flex logic */
             .players-area {
-                grid-template-columns: repeat(3, 1fr);
                 gap: 6px;
                 padding: 5px;
             }
@@ -927,6 +937,9 @@
                 padding: 4px;
                 border-radius: 8px;
                 border-width: 2px;
+                flex: 1 1 28%; /* Try to fit 3, else wrap */
+                min-width: 90px;
+                max-width: none;
             }
             
             /* Shrink Fonts inside card */
@@ -978,8 +991,7 @@
 
         /* Extra small screens */
         @media (max-width: 380px) {
-            .players-area { grid-template-columns: repeat(3, 1fr); } /* Still try 3, but items shrink */
-            .player-card { min-height: 80px; }
+            .player-card { min-height: 80px; flex-basis: 45%; } /* Go 2 per row on tiny screens */
         }
     </style>
 </head>
@@ -1918,13 +1930,17 @@
                     const deckRect = el.attackDeck.getBoundingClientRect();
                     
                     flyValueToScore(deckRect, targetPlayer.id, finalVal, () => {
-                        changeScore(targetPlayer, finalVal);
+                        // Render atlatılıyor, işlem bitince manuel yapılacak
+                        changeScore(targetPlayer, finalVal, true);
                         if (finalVal > 0) AudioEngine.playScore();
                         else AudioEngine.playActionBad('THIEF');
                         
                         showToast(`${actor.name} -> ${targetPlayer.name}: ${finalVal}`);
                         state.pendingAttackCard = null;
+                        
+                        // ÖNEMLİ: İşlem bitti bayrağını indir ve render et ki ışıklar geri gelsin
                         state.isProcessing = false;
+                        renderBoard(); 
                     });
                 }
             }
@@ -1994,29 +2010,42 @@
                     setTimeout(() => {
                          if (winner === attacker) {
                              // Önce kaybeden düşsün
-                            flyValueToScore(d2Rect, defender.id, -steal, () => changeScore(defender, -steal));
+                            flyValueToScore(d2Rect, defender.id, -steal, () => changeScore(defender, -steal, true));
                             // Sonra kazanan alsın
                             setTimeout(() => {
                                 flyValueToScore(d1Rect, attacker.id, steal, () => {
-                                    changeScore(attacker, steal);
+                                    changeScore(attacker, steal, true);
                                     AudioEngine.playWin();
+                                    
+                                    state.isProcessing = false;
+                                    state.pendingAttackCard = null;
+                                    state.pendingDuel = false;
+                                    renderBoard();
                                 });
                             }, 500);
                             showToast(`${attacker.name} ${steal} puan çaldı!`);
                         } else if (winner === defender) {
-                             flyValueToScore(d1Rect, attacker.id, -steal, () => changeScore(attacker, -steal));
+                             flyValueToScore(d1Rect, attacker.id, -steal, () => changeScore(attacker, -steal, true));
                             setTimeout(() => {
                                 flyValueToScore(d2Rect, defender.id, steal, () => {
-                                    changeScore(defender, steal);
+                                    changeScore(defender, steal, true);
                                     AudioEngine.playActionBad('BOOM');
+                                    
+                                    state.isProcessing = false;
+                                    state.pendingAttackCard = null;
+                                    state.pendingDuel = false;
+                                    renderBoard();
                                 });
                             }, 500);
                             showToast(`${defender.name} ${steal} puan çaldı!`);
+                        } else {
+                            // Berabere
+                            state.isProcessing = false;
+                            state.pendingAttackCard = null;
+                            state.pendingDuel = false;
+                            renderBoard();
                         }
 
-                        state.isProcessing = false;
-                        state.pendingAttackCard = null;
-                        state.pendingDuel = false;
                     }, 100); // Modal kapandıktan çok kısa bir süre sonra başlat
 
                 }, 1500); // 1.5 saniye sonucu oku
@@ -2094,7 +2123,7 @@
 
                 others.forEach((p) => {
                     flyValueToScore(centerRect, p.id, 10, () => {
-                        changeScore(p, 10);
+                        changeScore(p, 10, true);
                         completed++;
                         if(completed === others.length) afterEffect();
                     });
@@ -2116,7 +2145,7 @@
 
                 others.forEach((p) => {
                      flyValueToScore(centerRect, p.id, -10, () => {
-                        changeScore(p, -10);
+                        changeScore(p, -10, true);
                         completed++;
                         if(completed === others.length) afterEffect();
                     });
@@ -2140,11 +2169,11 @@
                         const victimRect = victimCard ? victimCard.getBoundingClientRect() : visualRect;
 
                         flyValueToScore(victimRect, victim.id, -stolen, () => {
-                            changeScore(victim, -stolen);
+                            changeScore(victim, -stolen, true);
                             
                             setTimeout(() => {
                                 flyValueToScore(victimRect, player.id, stolen, () => {
-                                    changeScore(player, stolen);
+                                    changeScore(player, stolen); // Last one triggers render
                                     afterEffect();
                                 });
                             }, 300);
@@ -2346,6 +2375,15 @@
             el.playersTop.innerHTML = '';
             el.playersBottom.innerHTML = '';
             const mid = Math.ceil(state.players.length / 2);
+
+            // Check for 4-player mode for corner layout
+            if (state.players.length === 4) {
+                el.playersTop.classList.add('mode-4p');
+                el.playersBottom.classList.add('mode-4p');
+            } else {
+                el.playersTop.classList.remove('mode-4p');
+                el.playersBottom.classList.remove('mode-4p');
+            }
 
             const isMyTurn = !state.isGameOver && !state.isPaused;
             const currentPlayer = state.players[state.currentPlayerIdx];
