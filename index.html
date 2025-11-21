@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="tr">
 <head>
@@ -2183,7 +2184,7 @@
                     if (others.length > 0) {
                         others.sort((a,b) => b.score - a.score);
                         const victim = others[0];
-                        const baseStolen = Math.min(victim.score, 5);
+                        const baseStolen = Math.max(0, Math.min(victim.score, 5));
                         
                         // HESAPLAMA: Çalan 2x ise 2 katı kazanır, Çalınan 2x ise 2 katı kaybeder
                         const gain = calculateScoreImpact(player, baseStolen);
@@ -2239,7 +2240,7 @@
         }
 
         function useJoker(playerId, type) {
-            if (state.turnPhase !== CONSTANTS.TURN_PHASES.POST_DRAW || state.isGameOver) return;
+            if (state.isGameOver) return;
             if (state.players[state.currentPlayerIdx].id !== playerId) return;
 
             const player = state.players.find(p => p.id === playerId);
@@ -2273,6 +2274,7 @@
                 renderBoard();
             }
             else if (type === 'pass') {
+                // Pass requires a card to be drawn. UI prevents this if not drawn.
                 if (state.lastUndoOp) state.lastUndoOp();
 
                 // Score penalty animation (Subject to MY buff?)
@@ -2293,9 +2295,16 @@
                 animatePass(player.id, nextPlayer.id);
 
                 state.currentPlayerIdx = nextIdx;
-                // Re-apply card effect to new player, use old visual pos
+                
+                // Re-apply card effect to new player, use old visual pos if exists
                 const deckRect = el.deck.getBoundingClientRect();
-                applyCardEffect(state.lastDrawnCard, nextPlayer, deckRect);
+                // IMPORTANT: If no card was drawn (edge case if button unlocked), use dummy or don't apply
+                if(state.lastDrawnCard) {
+                    applyCardEffect(state.lastDrawnCard, nextPlayer, deckRect);
+                } else {
+                    // Should not happen with correct UI logic, but failsafe:
+                    nextTurn();
+                }
                 // No renderBoard needed here as applyCardEffect handles it via afterEffect or manual
             }
         }
@@ -2424,10 +2433,10 @@
                 el.playersBottom.classList.remove('mode-4p');
             }
 
-            const isMyTurn = !state.isGameOver && !state.isPaused;
             const currentPlayer = state.players[state.currentPlayerIdx];
             
             // ANA DESTE
+            const isMyTurn = !state.isGameOver && !state.isPaused;
             const shouldDraw = state.turnPhase === CONSTANTS.TURN_PHASES.WAITING_DRAW && !state.isProcessing && isMyTurn;
             
             // Reset classes
@@ -2493,10 +2502,15 @@
                     div.style.borderColor = adjustColorOpacity(p.color, 0.5);
                 }
 
-                const canUseJoker = isActive && state.turnPhase === CONSTANTS.TURN_PHASES.POST_DRAW && !state.isGameOver;
-                const btnPassDisabled = !canUseJoker || p.jokers.pass ? 'disabled' : '';
-                const btnDrainDisabled = !canUseJoker || p.jokers.drain ? 'disabled' : '';
-                const btnDoubleDisabled = !canUseJoker || p.jokers.double ? 'disabled' : '';
+                // YENİ MANTIK: Sıra bendeyse ve oyun bitmediyse jokerleri (Pass hariç) aç
+                const isPlayerTurn = isActive && !state.isGameOver;
+                const hasDrawnCard = state.lastDrawnCard !== null;
+
+                // Pass için kart çekmiş olmak gerekir (neyi paslıyorsun?)
+                // Ama Double ve Drain için kart çekmeye gerek yok, tur başı basılabilir.
+                const btnPassDisabled = (!isPlayerTurn || !hasDrawnCard || p.jokers.pass) ? 'disabled' : '';
+                const btnDrainDisabled = (!isPlayerTurn || p.jokers.drain) ? 'disabled' : '';
+                const btnDoubleDisabled = (!isPlayerTurn || p.jokers.double) ? 'disabled' : '';
 
                 const buffText = isBuffed ? `⚡ 2x (${p.buffs.doubleDuration})` : '';
 
