@@ -1029,7 +1029,7 @@
                 <ul>
                     <li><strong>➡️ PAS (Maliyet -20):</strong> Çektiğin kötü kartı bir sonraki oyuncuya kitlersin.</li>
                     <li><strong>🔻 YIKIM:</strong> Senden başka herkese -10 puan verir. Lideri yakalamak için birebir!</li>
-                    <li><strong>⚡ GÜÇ (3 Tur):</strong> Sonraki 3 tur boyunca kazandığın tüm sayı puanları 2 ile çarpılır.</li>
+                    <li><strong>⚡ GÜÇ (3 Tur):</strong> Sonraki 3 tur boyunca sana eklenen TÜM puanlar (risk/saldırı dahil) 2 ile çarpılır.</li>
                 </ul>
             </div>
 
@@ -1699,6 +1699,15 @@
             }
         }
         
+        /* --- 2X BUFF HESAPLAYICI --- */
+        function calculateScoreImpact(player, amount) {
+            if (player.buffs.doubleDuration > 0) {
+                // İster negatif ister pozitif olsun, etkiyi 2 katına çıkar
+                return amount * 2;
+            }
+            return amount;
+        }
+        
         /* --- NEW PROJECTILE SYSTEM --- */
         function flyValueToScore(startRect, targetPlayerId, value, onComplete) {
             if (!startRect || !value) {
@@ -1924,7 +1933,8 @@
             } else {
                 // Normal Risk Kartı - Burası da animasyonlu olsun
                 if (targetPlayer && card) {
-                    let finalVal = card.value;
+                    // HESAPLAMA: Eğer hedef oyuncuda 2x buff varsa, etki iki katına çıkar
+                    let finalVal = calculateScoreImpact(targetPlayer, card.value);
                     
                     // Saldıranın kartından (veya ortadan) kurbana uçsun
                     const deckRect = el.attackDeck.getBoundingClientRect();
@@ -1983,20 +1993,20 @@
                 const d2Rect = d2.getBoundingClientRect();
 
                 let winner = null;
-                let steal = 0;
+                let baseSteal = 0;
 
                 if (roll1 > roll2) {
                     winner = attacker;
                     d1.classList.add('dice-winner');
                     d2.classList.add('dice-loser');
-                    steal = roll1 * 4;
-                    resText.innerText = `${attacker.name} KAZANDI! ${steal} PUAN ÇALIYOR!`;
+                    baseSteal = roll1 * 4;
+                    resText.innerText = `${attacker.name} KAZANDI! ${baseSteal} PUAN ÇALIYOR!`;
                 } else if (roll2 > roll1) {
                     winner = defender;
                     d2.classList.add('dice-winner');
                     d1.classList.add('dice-loser');
-                    steal = roll2 * 4;
-                    resText.innerText = `${defender.name} KAZANDI! ${steal} PUAN ÇALIYOR!`;
+                    baseSteal = roll2 * 4;
+                    resText.innerText = `${defender.name} KAZANDI! ${baseSteal} PUAN ÇALIYOR!`;
                 } else {
                     resText.innerText = "BERABERE! PUAN DEĞİŞİMİ YOK.";
                     AudioEngine.playDraw();
@@ -2009,12 +2019,16 @@
                     
                     setTimeout(() => {
                          if (winner === attacker) {
+                             // attacker kazanırsa: attacker puan alır (varsa 2x), defender puan kaybeder (varsa 2x)
+                             const gain = calculateScoreImpact(attacker, baseSteal);
+                             const loss = calculateScoreImpact(defender, -baseSteal);
+                             
                              // Önce kaybeden düşsün
-                            flyValueToScore(d2Rect, defender.id, -steal, () => changeScore(defender, -steal, true));
+                            flyValueToScore(d2Rect, defender.id, loss, () => changeScore(defender, loss, true));
                             // Sonra kazanan alsın
                             setTimeout(() => {
-                                flyValueToScore(d1Rect, attacker.id, steal, () => {
-                                    changeScore(attacker, steal, true);
+                                flyValueToScore(d1Rect, attacker.id, gain, () => {
+                                    changeScore(attacker, gain, true);
                                     AudioEngine.playWin();
                                     
                                     state.isProcessing = false;
@@ -2023,12 +2037,16 @@
                                     renderBoard();
                                 });
                             }, 500);
-                            showToast(`${attacker.name} ${steal} puan çaldı!`);
+                            showToast(`${attacker.name} puan çaldı!`);
                         } else if (winner === defender) {
-                             flyValueToScore(d1Rect, attacker.id, -steal, () => changeScore(attacker, -steal, true));
+                             // defender kazanırsa: defender puan alır, attacker kaybeder
+                             const gain = calculateScoreImpact(defender, baseSteal);
+                             const loss = calculateScoreImpact(attacker, -baseSteal);
+                             
+                             flyValueToScore(d1Rect, attacker.id, loss, () => changeScore(attacker, loss, true));
                             setTimeout(() => {
-                                flyValueToScore(d2Rect, defender.id, steal, () => {
-                                    changeScore(defender, steal, true);
+                                flyValueToScore(d2Rect, defender.id, gain, () => {
+                                    changeScore(defender, gain, true);
                                     AudioEngine.playActionBad('BOOM');
                                     
                                     state.isProcessing = false;
@@ -2037,7 +2055,7 @@
                                     renderBoard();
                                 });
                             }, 500);
-                            showToast(`${defender.name} ${steal} puan çaldı!`);
+                            showToast(`${defender.name} puan çaldı!`);
                         } else {
                             // Berabere
                             state.isProcessing = false;
@@ -2082,10 +2100,10 @@
             };
 
             if (card.type === CONSTANTS.CARD_TYPES.NUMBER) {
-                let points = card.value;
-                if (player.buffs.doubleDuration > 0) {
-                    points *= 2;
-                    player.buffs.doubleDuration--;
+                // HESAPLAMA: 2x Buff Kontrolü
+                let points = calculateScoreImpact(player, card.value);
+                
+                if (points !== card.value) {
                     log = `⚡ 2x Aktif! +${points}`;
                 } else {
                     log = `+${points} Puan`;
@@ -2114,7 +2132,7 @@
                 AudioEngine.playPowerUp();
                 VFX.flash('gold');
                 
-                // Everyone gets +10, fly from center
+                // Everyone gets +10 (subject to their own 2x buff)
                 const centerRect = el.deck.getBoundingClientRect();
                 let completed = 0;
                 const others = state.players.filter(p => p.id !== player.id);
@@ -2122,14 +2140,16 @@
                 if(others.length === 0) afterEffect();
 
                 others.forEach((p) => {
-                    flyValueToScore(centerRect, p.id, 10, () => {
-                        changeScore(p, 10, true);
+                    const val = calculateScoreImpact(p, 10);
+                    flyValueToScore(centerRect, p.id, val, () => {
+                        changeScore(p, val, true);
                         completed++;
                         if(completed === others.length) afterEffect();
                     });
                 });
 
-                log = "Diğerlerine +10!";
+                log = "Diğerlerine Puan!";
+                // Basit undo, tam hassas değil ama yeterli
                 state.lastUndoOp = () => { state.players.forEach(p => { if(p.id !== player.id) changeScore(p, -10); }); };
             }
             else if (card.type === CONSTANTS.CARD_TYPES.GLOBAL_MINUS) {
@@ -2144,14 +2164,15 @@
                 if(others.length === 0) afterEffect();
 
                 others.forEach((p) => {
-                     flyValueToScore(centerRect, p.id, -10, () => {
-                        changeScore(p, -10, true);
+                     const val = calculateScoreImpact(p, -10);
+                     flyValueToScore(centerRect, p.id, val, () => {
+                        changeScore(p, val, true);
                         completed++;
                         if(completed === others.length) afterEffect();
                     });
                 });
 
-                log = "Diğerlerine -10!";
+                log = "Diğerlerine Hasar!";
                 state.lastUndoOp = () => { state.players.forEach(p => { if(p.id !== player.id) changeScore(p, 10); }); };
             }
             else if (card.type === CONSTANTS.CARD_TYPES.ACTION) {
@@ -2162,25 +2183,29 @@
                     if (others.length > 0) {
                         others.sort((a,b) => b.score - a.score);
                         const victim = others[0];
-                        const stolen = Math.min(victim.score, 5);
+                        const baseStolen = Math.min(victim.score, 5);
+                        
+                        // HESAPLAMA: Çalan 2x ise 2 katı kazanır, Çalınan 2x ise 2 katı kaybeder
+                        const gain = calculateScoreImpact(player, baseStolen);
+                        const loss = calculateScoreImpact(victim, -baseStolen);
                         
                         // Animate: Victim loses -> Attacker Gains
                         const victimCard = document.getElementById(`player-card-${victim.id}`);
                         const victimRect = victimCard ? victimCard.getBoundingClientRect() : visualRect;
 
-                        flyValueToScore(victimRect, victim.id, -stolen, () => {
-                            changeScore(victim, -stolen, true);
+                        flyValueToScore(victimRect, victim.id, loss, () => {
+                            changeScore(victim, loss, true);
                             
                             setTimeout(() => {
-                                flyValueToScore(victimRect, player.id, stolen, () => {
-                                    changeScore(player, stolen); // Last one triggers render
+                                flyValueToScore(victimRect, player.id, gain, () => {
+                                    changeScore(player, gain); // Last one triggers render
                                     afterEffect();
                                 });
                             }, 300);
                         });
 
-                        log = `${victim.name}'den ${stolen} Çaldı!`;
-                        state.lastUndoOp = () => { changeScore(victim, stolen, true); changeScore(player, -stolen, false); };
+                        log = `${victim.name}'den Puan Çaldı!`;
+                        state.lastUndoOp = () => { changeScore(victim, -loss, true); changeScore(player, -gain, false); };
                     } else { 
                         state.lastUndoOp = () => {}; 
                         afterEffect();
@@ -2190,6 +2215,9 @@
                     VFX.shakeScreen();
                     VFX.flash('white');
                     const lost = Math.ceil(player.score / 2);
+                    // İflas genelde 2x buff'tan etkilenmez (yarıya iniyor sonuçta) ama kullanıcı tüm puanlar dediği için mantığı burada bozmayalım.
+                    // İflas özel bir durumdur, genellikle bufflanmaz ama kural istenirse buraya eklenebilir. 
+                    // Şimdilik standart bırakıyorum (Buff uygulanmıyor) çünkü bu bir "puan ekleme/çıkarma" değil "bölme" işlemi.
                     
                     flyValueToScore(visualRect, player.id, -lost, () => {
                         changeScore(player, -lost);
@@ -2226,13 +2254,14 @@
             player.jokers[type] = true;
 
             if (type === 'drain') {
-                // Everyone else -10
+                // Everyone else -10 (Subject to their 2x buffs)
                 const others = state.players.filter(p => p.id !== playerId);
                 others.forEach(p => {
-                    flyValueToScore(pRect, p.id, -10, () => changeScore(p, -10));
+                    const val = calculateScoreImpact(p, -10);
+                    flyValueToScore(pRect, p.id, val, () => changeScore(p, val));
                 });
                 
-                player.lastAction = "⚠️ RAKİPLER -10!";
+                player.lastAction = "⚠️ RAKİPLER YANDI!";
                 showToast(`${player.name} rakipleri yaktı!`);
                 renderBoard(); // Update UI for joker buttons immediately
             }
@@ -2240,18 +2269,22 @@
                 player.buffs.doubleDuration = 3;
                 AudioEngine.playPowerUp();
                 player.lastAction = "⚡ 3 Tur 2x Aktif!";
-                showToast("Sonraki çekilişlerin 2 katı olacak!");
+                showToast("Tüm puan değişimlerin 2 ile çarpılacak!");
                 renderBoard();
             }
             else if (type === 'pass') {
                 if (state.lastUndoOp) state.lastUndoOp();
 
-                // Score penalty animation
-                flyValueToScore(pRect, player.id, -20, () => {
-                    changeScore(player, -20);
+                // Score penalty animation (Subject to MY buff?)
+                // Kendi isteğiyle pas geçtiği için ceza bufflanabilir de bufflanmayabilir de.
+                // Genelde cezalar bufflanmaz ama kural "tüm puanlar" dediği için bufflayalım.
+                const penalty = calculateScoreImpact(player, -20);
+                
+                flyValueToScore(pRect, player.id, penalty, () => {
+                    changeScore(player, penalty);
                 });
 
-                player.lastAction = "➡️ PASLANDI (-20)";
+                player.lastAction = `➡️ PASLANDI (${penalty})`;
 
                 const nextIdx = (state.currentPlayerIdx + 1) % state.players.length;
                 const nextPlayer = state.players[nextIdx];
@@ -2300,6 +2333,12 @@
 
         function nextTurn(isBoomEffect = false) {
             if (state.deck.length === 0) { endGame(); return; }
+            
+            // HESAPLAMA: Tur bitiren oyuncunun buff süresini azalt
+            const finishingPlayer = state.players[state.currentPlayerIdx];
+            if (finishingPlayer.buffs.doubleDuration > 0) {
+                finishingPlayer.buffs.doubleDuration--;
+            }
 
             state.currentPlayerIdx = (state.currentPlayerIdx + 1) % state.players.length;
             state.drawsLeft = 1;
